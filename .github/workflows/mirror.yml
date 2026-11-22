@@ -1,0 +1,49 @@
+# lecpage 예비 주소(https://lecpage.github.io/): 공개 저장소 yoorrard/lecpage의 main을 받아 앱을 빌드해 이 조직의 GitHub Pages로 올려요.
+# 비밀 값은 없어요. 2시간마다, 그리고 Actions에서 [Run workflow]를 누를 때 돌아요.
+# 이 조직에는 다른 Pages 사이트를 만들지 마세요(출처를 lecpage 혼자 써야 lecpage 커넥트가 이 주소를 믿을 수 있어요).
+name: mirror
+on:
+  schedule: [{ cron: '23 */2 * * *' }]
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: pages, cancel-in-progress: true }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs: { sha: '${{ steps.src.outputs.sha }}' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { repository: yoorrard/lecpage, ref: main, persist-credentials: false }
+      - id: src
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 22 }
+      - run: npm --prefix app ci
+      - run: npm --prefix app run build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with: { path: app/dist }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions: { pages: write, id-token: write }
+    environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
+    steps:
+      - id: d
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+  # 올린 판을 mirror.txt에 적어 커밋(바뀌었을 때만): 저장소에 활동이 있어야 GitHub가 60일 뒤에 예약 실행을 끄지 않아요
+  record:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env: { SHA: '${{ needs.build.outputs.sha }}' }
+        run: |
+          echo "yoorrard/lecpage@$SHA" > mirror.txt
+          if git diff --quiet -- mirror.txt 2>/dev/null && git ls-files --error-unmatch mirror.txt >/dev/null 2>&1; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mirror.txt
+          git commit -m "예비 주소에 올린 판: ${SHA:0:7}"
+          git push
